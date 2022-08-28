@@ -1,0 +1,564 @@
+---
+title: "Bookbinder's"
+author: "Diego Pettorossi"
+date: "26/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Libraries used in the case study
+```{r}
+library(ggplot2)
+library(dplyr)
+library(MASS); library(car); library(olsrr)
+library(DescTools);library(ResourceSelection)
+library(caret);library(lattice);
+library(gam);library(car)
+library(ROCR);library(gridExtra)
+library(gmodels)
+library(corrplot)
+library(readxl)
+library(Rcpp)
+library(caret)
+library(e1071)
+library(MASS)
+library(tidyr)
+library(ROSE)
+```
+
+
+```{r}
+bbtrain <- read_excel("BBBC-Train.xlsx",sheet = 1)
+bbtest <- read_excel("BBBC-Test.xlsx", sheet = 1)
+bbmatrix <- bbtrain
+```
+
+```{r}
+str(bbtrain)
+head(bbtrain)
+summary(bbtrain)
+```
+## GIVEN VARIABLES
+```{r}
+mail_cost <- 0.65
+book_cost <- 15
+book_over <- book_cost*0.45
+sell_book <- 31.95
+profit_book <- sell_book - mail_cost - book_cost - book_over
+```
+
+# remove observation column
+```{r}
+bbtrain[1] <- NULL 
+bbtest[1] <- NULL
+```
+
+## Check missing values
+```{r}
+colSums(is.na(bbtrain))
+colSums(is.na(bbtest))
+```
+
+## check duplicate values
+```{r}
+sum(duplicated(bbtrain))
+```
+
+```{r}
+bbtrain$Choice<-as.factor(bbtrain$Choice)
+bbtrain$Gender = as.factor(bbtrain$Gender)
+bbtest$Choice = as.factor(bbtest$Choice)
+bbtest$Gender = as.factor(bbtest$Gender)
+```
+
+
+## Visualization and Analysis
+
+### 1. Target variable - Choice 
+
+```{r}
+table(bbtrain$Choice)
+p1 <- ggplot(bbtrain,aes(x = factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) +
+  geom_bar() + stat_count(geom = "text", colour = "white", aes(label = paste("N =",..count..)),position=position_stack(vjust=0.5)) + xlab("Choice") + ylab("Count")
+p1
+```
+
+### 2. Gender
+
+```{r}
+summary(bbtrain$Gender)
+
+cor(as.numeric(as.factor(bbtrain$Gender)),as.numeric(as.factor(bbtrain$Choice)))
+```
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x = factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) +
+  geom_bar() + stat_count(geom = "text", colour = "white", aes(label = paste("N =",..count..)),position=position_stack(vjust=0.5)) + xlab("Choice") + ylab("Count")
+
+p2 <- ggplot(bbtrain,aes(x = factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )), fill = factor(ifelse(Gender == 0, "Female", "Male")))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5)) +  labs(x="Choice",y="Count",fill="Gender")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+```{r}
+CrossTable(bbtrain$Gender,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+
+### 3. Amount_Purchased
+
+```{r}
+summary(bbtrain$Amount_purchased)
+cor(as.numeric(as.factor(bbtrain$Amount_purchased)),as.numeric(as.factor(bbtrain$Choice)))
+```
+
+```{r}
+p1= ggplot(bbtrain) + geom_histogram(aes(x=Amount_purchased),color="black", fill="grey",bins=20) +
+  ylab('Count') +  xlab('Amount_purchased') +  geom_vline(aes(xintercept = mean(Amount_purchased), color = "red"))
+p2 = ggplot(bbtrain) + geom_boxplot(aes(x='', y=Amount_purchased))
+p3=ggplot(bbtrain, aes(x=Amount_purchased, fill=Choice)) + geom_bar() 
+grid.arrange(p1, p2,p3,ncol=2)
+```
+
+### 4. Frequency
+
+```{r}
+summary(bbtrain$Frequency)
+#unique(bbtrain$Frequency)
+cor(as.numeric(as.factor(bbtrain$Frequency)),as.numeric(as.factor(bbtrain$Choice)))
+```
+```{r}
+p1= ggplot(bbtrain) + geom_histogram(aes(x=Frequency),color="black", fill="grey",bins=18) +
+  ylab('Count') +  xlab('Frequency') +  geom_vline(aes(xintercept = mean(Frequency), color = "red"))
+p2 = ggplot(bbtrain) + geom_boxplot(aes(x='', y=Frequency))
+p3=ggplot(bbtrain, aes(x=Frequency, fill=Choice)) + geom_bar() 
+grid.arrange(p1, p2,p3,ncol=2)
+```
+
+```{r}
+CrossTable(bbtrain$Frequency,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+### 5. Last_Purchase
+
+```{r}
+summary(bbtrain$Last_purchase)
+unique(bbtrain$Last_purchase)
+cor(as.numeric(as.factor(bbtrain$Last_purchase)),as.numeric(as.factor(bbtrain$Choice)))
+#bbtrain$Last_purchase <- as.factor(bbtrain$Last_purchase)
+```
+
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x=Last_purchase,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="Last_Purchase",y="Count",fill="Choice")
+p2 <- ggplot(bbtrain,aes(x= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=4) +  labs(x="Choice",y="Count",fill="Last_Purchase")
+grid.arrange(p1, p2,nrow=2)
+```
+```{r}
+CrossTable(bbtrain$Last_purchase,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+### 6. First_Purchase
+
+```{r}
+summary(bbtrain$First_purchase)
+unique(bbtrain$First_purchase)
+cor(as.numeric(as.factor(bbtrain$First_purchase)),as.numeric(as.factor(bbtrain$Choice)))
+#bbtrain$Last_purchase<-as.factor(bbtrain$First_purchase)
+```
+
+```{r}
+p1= ggplot(bbtrain) + geom_histogram(aes(x=First_purchase),color="black", fill="grey",bins=20) +
+  ylab('Count') +  xlab('First_purchase') +  geom_vline(aes(xintercept = mean(First_purchase), color = "red"))
+p2 = ggplot(bbtrain) + geom_boxplot(aes(x='', y=First_purchase))
+p3=ggplot(bbtrain, aes(x=First_purchase, fill=Choice)) + geom_bar() 
+grid.arrange(p1, p2,p3,ncol=2)
+```
+
+### 7. P_child
+
+```{r}
+summary(bbtrain$P_Child)
+unique(bbtrain$P_Child)
+cor(as.numeric(as.factor(bbtrain$P_Child)),as.numeric(as.factor(bbtrain$Choice)))
+#bbtrain$P_Child <- as.factor(bbtrain$P_Child)
+```
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x=P_Child,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="P_Child",y="Count",fill="Choice")
+p1
+```
+
+```{r}
+CrossTable(bbtrain$P_Child,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+### 8. P_Youth
+
+```{r}
+summary(bbtrain$P_Youth)
+unique(bbtrain$P_Youth)
+cor(as.numeric(as.factor(bbtrain$P_Youth)),as.numeric(as.factor(bbtrain$Choice)))
+```
+```{r}
+p1 <- ggplot(bbtrain,aes(x=P_Youth,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="P_Youth",y="Count",fill="Choice")
+p1
+```
+
+```{r}
+CrossTable(bbtrain$P_Youth,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+
+### 9. P_Cook
+
+```{r}
+summary(bbtrain$P_Cook)
+unique(bbtrain$P_Cook)
+cor(as.numeric(as.factor(bbtrain$P_Cook)),as.numeric(as.factor(bbtrain$Choice)))
+```
+
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x=P_Cook,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="P_Cook",y="Count",fill="Choice")
+p1
+```
+
+```{r}
+CrossTable(bbtrain$P_Cook,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+### 10. P_DIY
+
+```{r}
+summary(bbtrain$P_DIY)
+unique(bbtrain$P_DIY)
+cor(as.numeric(as.factor(bbtrain$P_DIY)),as.numeric(as.factor(bbtrain$Choice)))
+```
+
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x=P_DIY,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="P_DIY",y="Count",fill="Choice")
+p1
+```
+
+
+```{r}
+CrossTable(bbtrain$P_DIY,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+### 11. P_Art
+
+```{r}
+summary(bbtrain$P_Art)
+unique(bbtrain$P_Art)
+cor(as.numeric(as.factor(bbtrain$P_Art)),as.numeric(as.factor(bbtrain$Choice)))
+```
+
+
+```{r}
+p1 <- ggplot(bbtrain,aes(x=P_Art,fill= factor(ifelse(Choice == 0, "Non-Purchase", "Book Purchase" )))) + geom_bar() + 
+  stat_count(geom = "text", colour = "white",aes(label = paste("N =", ..count..)),position=position_stack(vjust=0.5),size=2) +  labs(x="P_Art",y="Count",fill="Choice")
+p1
+```
+
+```{r}
+CrossTable(bbtrain$P_Art,bbtrain$Choice,prop.t = FALSE,prop.c = FALSE)
+```
+## correlation Matrix 
+
+```{r}
+mat <- cor(bbmatrix)
+corrplot(mat,method="number",tl.cex=0.7,number.cex = 0.5,col=colorRampPalette(c("grey","blue","black"))(100))
+```
+
+## Pairwise Comparison
+
+```{r}
+pairs(bbtrain)
+```
+### Pair wise plots by some segments
+
+```{r}
+pair1 <- bbtrain[, c('Amount_purchased','Frequency','P_Child','P_Youth','P_Cook','P_DIY','P_Art')]
+pairs(pair1)
+```
+```{r}
+pair2 <- bbtrain[, c('Last_purchase','P_Child','P_Youth','P_Cook','P_DIY','P_Art')]
+pairs(pair2)
+#pairs(pair2,panel=panel.car,pch=".",col="red")
+```
+```{r}
+pair3 <- bbtrain[, c('First_purchase','P_Child','P_Youth','P_Cook','P_DIY','P_Art')]
+pairs(pair3)
+#pairs(pair3,panel=panel.car,pch=".",col="red")
+```
+
+Highest purchase books by category
+Last purchase vs first purchase
+amount_purchased by category
+type of books purchased by gender
+Amount_purchased by gender
+last freq and first freq by gender
+last purchase and first purchase by gender
+
+
+```{r}
+bbtrain <- ovun.sample(Choice ~ ., data = bbtrain, method = "both",N = 1600)$data
+table(bbtrain$Choice)
+bbtest <- ovun.sample(Choice ~ ., data = bbtest, method = "both",N = 2300)$data
+table(bbtest$Choice)
+```
+## Given Varibles
+```{r}
+mail_cost <- 0.65
+books_sold <- 182 # From the test data set
+book_cost <- 15
+book_over <- book_cost*0.45
+sell_book <- 31.95
+profit_book <- sell_book - book_cost - book_over
+profit_book
+profit_no_model = profit_book * books_sold - total_ * mail_cost
+profit_no_model
+```
+
+
+## SVM
+```{r}
+bbtrain2 <- bbtrain # COPY DATA
+str(bbtrain2)
+
+form1 = Choice ~ .
+
+# Tuning takes a while to finish
+tuned = tune.svm(form1, 
+                 data = bbtrain2, 
+                 gamma= seq(.01, .1,  by = .01), 
+                 cost = seq(.1, 1, by = .1))
+
+# create best model
+bestsvm <- tuned$best.model
+summary(bestsvm)
+tuned$best.parameters
+# make predictions from model and test it
+svmpredict = predict(bestsvm, bbtest, type = "response")
+caret::confusionMatrix(svmpredict,as.factor(bbtest$Choice))
+```
+
+## VARIABLES FROM SVM
+```{r}
+## CALCULATIONS
+# total profit
+#profit <- (books_sold * (profit_book)) - (mailing *(mail_cost))
+#profit 
+# profit per customer
+#profit_PC <- profit / total_
+#profit_PC
+#Profit.PSVM <- N.booksold * (Prof.book) - N.mailing * (VC.mail.posting)
+#Prof.per.Cust.PSVM <- Profit.PSVM / N.Cust
+#Profit.PSVM
+
+
+total_ <- 2300
+#books_sold <- 51
+#mailing <- 65
+N.books_sold = 28
+N.mailing = 60
+
+## CALCULATIONS
+# total profit
+profit_svm <- (N.books_sold * (profit_book)) - (N.mailing *(mail_cost))
+profit_svm 
+set.seed(profit_svm)
+# profit per customer
+profit_PC <- profit_svm / total_
+profit_PC
+
+#Profit.PSVM <- N.books_sold * (Prof.book) - N.mailing * (VC.mail.posting)
+#Prof.per.Cust.PSVM <- Profit.PSVM / N.Cust
+#Profit.PSVM
+```
+
+## LINEAR REGRESSION
+```{r}
+bbtrain2 <- bbtrain # reset data
+bbtrain2$Gender = as.factor(bbtrain2$Gender)
+#bbtest$Choice = as.factor(bbtest$Choice)
+bbtest$Gender = as.factor(bbtest$Gender)
+lm <- lm(as.numeric(Choice) ~ ., data=bbtrain2)
+summary(lm)
+
+# find best model
+stepLM <- stepAIC(lm, direction="both")
+stepLM$anova
+
+# new model
+bestlm <- lm(as.numeric(Choice) ~ . - First_purchase, data=bbtrain2)
+summary(bestlm)
+vif(bestlm)
+
+# Remove last Purchase
+bestlm <- lm(as.numeric(Choice) ~ . - First_purchase -Last_purchase, data=bbtrain2)
+summary(bestlm)
+
+par(mfrow=c(2,2))
+plot(bestlm, which=c(1:4))
+```
+
+# We can't use the linear regression since the target variable is not continuous.
+# Also, based on the diagnostics plots, the linearity and normality assumptions would be violated. 
+
+# added stepwise
+```{r}
+bestlm.stepwise <- ols_step_both_p(bestlm, pent = 0.05, prem = 0.05, details = F)
+bestlm.stepwise
+
+bestlm.st <- lm(as.numeric(Choice)~ P_Art + Frequency + Gender + P_Cook + P_DIY + Amount_purchased + P_Child, 
+                bbtrain2)
+summary(bestlm.st)
+```
+
+```{r}
+inf.id=which(cooks.distance(bestlm.st)>(6/nrow(bbtrain2)))
+inf.id
+```
+
+# Normal plot shows non normal data
+```{r}
+plot(bestlm.st, which=c(1:4))
+vif(bestlm.st)
+```
+# there are influential points, but we kept it to reduce bias
+
+# We probably don't need this anymore
+```{r}
+prediction <- predict(bestlm, newdata = bbtest)
+#prediction
+bbtrain2$predprob = predict.lm(bestlm)
+bbtrain2$predc = ifelse(bbtrain2$predprob >= 0.5,1,0)
+bbtrain2$predc <- as.numeric(bbtrain2$predc)
+bbtrain2$Choice <- as.numeric(bbtrain2$Choice)
+#caret::confusionMatrix(as.factor(bbtrain2$Choice),as.factor(bbtrain2$predc))
+#caret::confusionMatrix(bbtrain$Choice,as.factor(bbtrain2$predc))
+
+bbtest$predprob = prediction
+bbtest$predc = ifelse(bbtest$predprob >= 0.5,1,0)
+bbtest$predc
+#caret::confusionMatrix(as.factor(bbtest$Choice), as.factor(bbtest$predc))
+```
+
+# LOGIT
+```{r}
+bbtrain2 <- bbtrain # reset data
+bbtrain2 <- ovun.sample(Choice ~ ., data = bbtrain2, method = "both",N = 1600)$data
+table(bbtrain2$Choice)
+bbtest2 <- bbtest
+bbtest2 <- ovun.sample(Choice ~ ., data = bbtrain2, method = "both",N = 2300)$data
+table(bbtest2$Choice)
+bbtrain2$Gender = as.factor(bbtrain2$Gender)
+str(bbtrain2)
+m1 <- glm(formula = Choice ~ ., data = bbtrain2, family = binomial)
+summary(m1)
+m1 =stepAIC(m1, direction="both")
+```
+
+# multicollinearity
+```{r}
+vif(m1)
+```
+
+# LOGIT 2 model 
+```{r}
+m2 <- glm(formula = Choice ~ .- Last_purchase, data = bbtrain2, family = binomial)
+summary(m2)
+vif(m2)
+```
+
+## Prediction, linearity assumption
+```{r}
+bbtrain2$predprob = predict.glm(m2, newdata = bbtrain2, type = "response")
+
+# check linearity assumption
+bbtrain_cont <- bbtrain2[-c(5:6)] %>%
+  dplyr::select_if(is.numeric) 
+predictors <- colnames(bbtrain2)
+
+# Bind the logit and tidying the data for plot
+bbtrain_cont <- bbtrain_cont %>%
+  mutate(logit = log(predprob/(1-predprob))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+
+# Create the scatter plots:
+plot1 <- ggplot(bbtrain_cont, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw() + 
+  facet_wrap(~predictors, scales = "free_y")
+plot1
+```
+# the linearity assumption is violated for every predictor but Frequency and P_Art
+
+#Influential points 
+```{r}
+inf.id=which(cooks.distance(m2)>(6/nrow(bbtrain2)))
+inf.id
+```
+
+#there are influential points but we're not dropping them because the dataset is already small
+
+# looking for optimal cut-off to predict choices
+```{r}
+pred <- prediction(predict(m2, bbtest2, type = "response"),bbtest2$Choice) #Predicted Probability and True Classification
+```
+
+# area under curve
+```{r}
+auc <- round(as.numeric(performance(pred, measure = "auc")@y.values),3)
+auc
+```
+
+# some important statistics
+```{r}
+false.rates <-performance(pred, "fpr","fnr")
+accuracy <-performance(pred, "acc","err")
+perf <- performance(pred, "tpr","fpr")
+```
+
+#plotting the ROC curve and computing AUC
+```{r}
+plot(perf,colorize = T, main = "ROC Curve")
+text(0.5,0.5, paste("AUC:", auc))
+```
+
+#find where the lines intersect
+```{r}
+min.diff <-which.min(abs(unlist(performance(pred, "sens")@y.values) - unlist(performance(pred, "spec")@y.values)))
+min.x<-unlist(performance(pred, "sens")@x.values)[min.diff]
+min.y<-unlist(performance(pred, "spec")@y.values)[min.diff]
+optimal <-min.x #this is the optimal points to best trade off sensitivity and specificity
+```
+
+# Test predictions
+```{r}
+bbtrain2$predprob = predict.glm(m2, newdata = bbtrain2, type = "response")
+bbtrain2$predc = ifelse(bbtrain2$predprob >= 0.5,1,0)
+caret::confusionMatrix(as.factor(bbtrain$Choice), as.factor(bbtrain2$predc))
+
+bbtrain2$predc = ifelse(bbtrain2$predprob >= optimal,1,0)
+caret::confusionMatrix(as.factor(bbtrain$Choice), as.factor(bbtrain2$predc))
+
+# ROC Curve find optimal cutoff which is 0.228 we choose this cutoff because its much better in classifying 1's. Which is the book purchase.
+# We couldn't find an optimal cut-off because the data is very unbalanced
+bbtest$predprob = predict.glm(m2, newdata = bbtest, type = "response")
+bbtest$predc = ifelse(bbtest$predprob >= 0.5,1,0)
+caret::confusionMatrix(as.factor(bbtest$Choice), as.factor(bbtest$predc))
+```
+# ROC Curve find optimal cutoff which is 0.228 we choose this cutoff because its much better in classifying 1's. Which is the book purchase.
+# We couldn't find an optimal cut-off because the data is very unbalanced
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
