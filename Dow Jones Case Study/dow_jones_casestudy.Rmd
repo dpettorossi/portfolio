@@ -1,0 +1,571 @@
+---
+title: "Dow Jones Case Study"
+author: "Diego Aldo Pettorossi"
+date: "24/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Setting up working directory
+
+
+```{r}
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("fs")) install.packages("fs")
+if(!require("readxl")) install.packages("readxl")
+if(!require("ggplot2")) install.packages("ggplot2")
+if(!require("tidyquant")) install.packages("tidyquant")
+if(!require("plotly")) install.packages("plotly")
+if(!require("quantmod")) install.packages("quantmod")
+if(!require("forecast")) install.packages("forecast")
+
+library(tidyverse)
+library(fs)
+library(readxl)
+library(ggplot2)
+library(tidyquant)
+library(plotly)
+library(quantmod)
+library(forecast)
+library(tseries)
+```
+
+
+### Libraries used in the case study
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(tree)
+library(MASS); library(car); library(olsrr)
+library(DescTools);library(ResourceSelection)
+library(caret);library(lattice);
+library(gam);library(car)
+library(ROCR);library(gridExtra)
+library(gmodels)
+library(corrplot)
+library(readxl)
+library(Rcpp)
+library(caret)
+library(e1071)
+library(MASS)
+library(tidyr)
+library(ROSE)
+
+```
+### Reading the Dataset
+```{r}
+dowjones <- read.csv("dow_jones_index.data",sep = ",", header = TRUE)
+head(dowjones)
+```
+
+```{r}
+summary(dowjones)
+```
+
+### Check missing values
+```{r}
+colSums(is.na(dowjones))
+```
+### Change the variables types and prefix
+
+```{r}
+dowjones$quarter <- as.factor(dowjones$quarter)
+dowjones$stock <- as.factor(dowjones$stock)
+dowjones$date <- as.Date(dowjones$date, "%m/%d/%Y")
+dowjones$open <- as.numeric(str_remove(dowjones$open, "[$]"))
+dowjones$high <- as.numeric(str_remove(dowjones$high, "[$]"))
+dowjones$low <- as.numeric(str_remove(dowjones$low, "[$]"))
+dowjones$close <- as.numeric(str_remove(dowjones$close, "[$]"))
+dowjones$next_weeks_open <- as.numeric(str_remove(dowjones$next_weeks_open, "[$]"))
+dowjones$next_weeks_close <- as.numeric(str_remove(dowjones$next_weeks_close, "[$]"))
+str(dowjones[])
+```
+
+
+
+## Visualization and Analysis
+
+### 1. Quarter
+
+```{r}
+table(dowjones$quarter)
+p1 <- ggplot(dowjones,aes(x = factor(ifelse(quarter == 1, "Quarter 1", "Quarter 2" )))) +
+  geom_bar() + stat_count(geom = "text", colour = "white", aes(label = paste("N =",..count..)),position=position_stack(vjust=0.5)) + xlab("Quarter") + ylab("Count")
+p1
+```
+The dow jones dataset is spread over 2 quarters, with 360 observations in quarter 1 and 390 observations in quarter 2.
+
+### 2. stock
+```{r}
+table(dowjones$stock)
+length(unique(dowjones$stock))
+```
+The dataset contains 30 distinct stocks data with 25 observations for each stock.
+
+### 3. Date
+```{r}
+table(dowjones$date)
+```
+We can see that the stock data is given on a weekly basis starting from '01/14/2011' till '06/03/2011'.
+
+### 4. Open
+```{r}
+#dowjones$open <- as.numeric(as.factor(dowjones$open))
+p1= ggplot(dowjones) + geom_histogram(aes(x=open),color="black", fill="grey",bins=18) +
+  ylab('Count') +  xlab('price') +  geom_vline(aes(xintercept = mean(open), color = "red"))
+p2 = ggplot(dowjones) + geom_boxplot(aes(x='', y=open))
+grid.arrange(p1,p2,ncol=2)
+```
+The above bar graph and box plot shows the overall stock open price distribution from 0 to 800.
+
+### 5. High
+```{r}
+dowjones %>%
+  group_by(stock) %>%
+  summarise(Freq = max(low))
+
+dowjones %>% filter(stock== "AA") %>%
+    ggplot(aes(x = date, y = high, group = stock)) +
+    geom_candlestick(aes(open = open, high = high, low = low, close = close)) +
+    labs(title = "Candlestick Charts",
+         y = "Price High", x = "") + 
+    facet_wrap(~ stock, ncol = 1, scale = "free_y") + 
+    theme_tq()
+```
+The above candlestick shows the stock high with respect to time for 'AA' stock.
+
+### 6.Low
+```{r}
+dowjones %>%
+  group_by(stock) %>%
+  summarise(Freq = min(low))
+```
+The above summary show the lowest value of each stock traded during given time.
+
+### 7. Volume
+```{r}
+dowjones %>%
+  group_by(stock) %>%
+  summarise(Freq = sum(volume))
+
+```
+The above summary show the total volume of stocks traded by each stock during given time.
+
+### Now lets try some visual analysis for finding insights.
+
+#### Stocks with highest average dividend
+```{r}
+dowjones_dvd = dowjones %>% 
+             group_by(stock) %>% 
+             summarise(pct_rt_avg = mean(percent_return_next_dividend, na.rm=TRUE))
+
+ggplot(data = dowjones_dvd, aes(x=pct_rt_avg, y=reorder(stock, pct_rt_avg), fill=stock)) +
+  geom_bar(stat='identity') + ylab ("Stocks") +
+  xlab ("Average Dividend in %") +
+  ggtitle ("Chart of average dividend by stock") +
+  theme(plot.title = element_text(face="bold")) +
+  theme(plot.title = element_text(hjust = 0.50)) +
+  theme(legend.position = "none") +
+  theme(  panel.background = element_rect(fill = "white",colour = "white",size = 0.50, linetype = "dotted"),
+  panel.grid.major = element_line(size = 0.50, linetype = "dotted",colour = "black"), 
+  panel.grid.minor = element_line(size = 0.25, linetype = "dotted",colour = "black"))
+```
+From the above graph we can see that stock 'T (AT&T)' has the highest dividend percentage.
+
+
+### Stock price over time
+
+```{r}
+ggplot(data = dowjones, aes(x=date, y=close, color=stock)) + 
+  geom_line(size=1) + xlab("Week") + 
+  ylab("Stock Closed Price") + 
+  scale_x_date(date_breaks = "1 week", date_labels = "%b%e") +
+  geom_text(data = subset(dowjones, date == as.Date("24jun2011","%d%b%Y")), aes(label = stock, color = stock, x = date, y = close), hjust = -.1) +  
+  scale_colour_discrete(guide = 'none') +
+  coord_cartesian(ylim = c(0,175)) +
+  ggtitle("Chart of stock close price by date") +
+  theme(plot.title = element_text(face="bold")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.50, hjust=1)) + 
+  theme(plot.title = element_text(hjust = 0.50)) +
+  theme(legend.position = "none") +
+  theme(panel.background = element_rect(fill = "white",colour = "white",size = 0.50, linetype = "dotted"),
+  panel.grid.major = element_line(size = 0.50, linetype = "dotted",colour = "black"), 
+  panel.grid.minor = element_line(size = 0.25, linetype = "dotted",colour = "black"))
+```
+```{r}
+corplot <- dowjones %>% dplyr::select(open,high,low,close,percent_change_next_weeks_price)
+mat <- cor(corplot)
+str(dowjones)
+#dowjones$quarter <-as.numeric(dowjones$quarter)
+corrplot(mat,method="number",tl.cex=0.7,number.cex = 0.5,col=colorRampPalette(c("grey","blue","black"))(100))
+```
+
+
+```{r}
+pairs(dowjones)
+```
+```{r}
+plot(lag(dowjones$open, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(open,n=1), data=dowjones))
+plot(lag(dowjones$open, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(open,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$close, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(close,n=1), data=dowjones))
+plot(lag(dowjones$close, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(close,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$high, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(high,n=1), data=dowjones))
+plot(lag(dowjones$high, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(high,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$low, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(low,n=1), data=dowjones))
+plot(lag(dowjones$low, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(low,n=2), data=dowjones))
+```
+```{r}
+plot(lag(dowjones$volume, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(volume,n=1), data=dowjones))
+plot(lag(dowjones$volume, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(volume,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$percent_change_price, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(percent_change_next_weeks_price,n=1), data=dowjones))
+plot(lag(dowjones$percent_change_price, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(percent_change_next_weeks_price,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$percent_change_volume_over_last_wk, n=1),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(percent_change_next_weeks_price,n=1), data=dowjones))
+plot(lag(dowjones$percent_change_volume_over_last_wk, n=2),dowjones$percent_change_next_weeks_price)
+abline(lm(percent_change_next_weeks_price ~ lag(percent_change_next_weeks_price,n=2), data=dowjones))
+```
+
+```{r}
+plot(lag(dowjones$previous_weeks_volume, n=1),dowjones$percent_change_next_weeks_price)
+plot(lag(dowjones$previous_weeks_volume, n=2),dowjones$percent_change_next_weeks_price)
+```
+
+```{r}
+lag.plot(dowjones$percent_change_next_weeks_price,set.lag=1:6)
+```
+```{r}
+# Open Lag
+dowjones <- dowjones %>% 
+  group_by(stock) %>% 
+  mutate(close.lag = lag(close, n = 1), 
+         open.lag = lag(open, n = 1),
+         high.lag = lag(high, n =1),
+         low.lag = lag(low, n=1),
+         previous_weeks_volume.lag = lag(previous_weeks_volume, n=1),
+         percent_change_price.lag=lag(percent_change_price, n=1),
+         previous_weeks_volume.lag = ifelse(is.na(previous_weeks_volume.lag), mean(previous_weeks_volume.lag, na.rm=T),previous_weeks_volume.lag),
+         percent_change_price.lag = ifelse(is.na(percent_change_price.lag), mean(percent_change_price.lag, na.rm=T), percent_change_price.lag),
+         percent_change_volume_over_last_wk.lag= lag(percent_change_volume_over_last_wk,n=1),
+         volume.lag = lag(volume, n = 1)) %>% 
+  ungroup()
+```
+
+### data imputation replacing missing value with average
+
+```{r}
+
+dowjones <- dowjones %>% 
+  group_by(stock) %>%
+  mutate(percent_change_volume_over_last_wk = ifelse(is.na(percent_change_volume_over_last_wk),
+                                                     mean(percent_change_volume_over_last_wk,
+                                                          na.rm=TRUE),
+                                                     percent_change_volume_over_last_wk),
+         previous_weeks_volume = ifelse(is.na(previous_weeks_volume),
+                                        mean(previous_weeks_volume, na.rm=TRUE), 
+                                        previous_weeks_volume)) %>% 
+  ungroup()
+```
+
+### split data set
+```{r}
+dowjones.train = dowjones[dowjones$quarter == 1,]
+dowjones.test = dowjones[dowjones$quarter == 2,]
+```
+
+####  OVERALL MODEL COMPARISON ####
+
+#### LINEAR MODEL
+
+```{r}
+lm1 = lm(percent_change_next_weeks_price ~open+close+high+low+volume
+         +percent_change_price+percent_change_volume_over_last_wk+
+        previous_weeks_volume+days_to_next_dividend, data= dowjones.train)
+null.model = lm(percent_change_next_weeks_price ~1, data= dowjones.train)
+lm1_step <- step(lm1, scope = list(upper=null.model),
+                     direction="backward",test="Chisq", trace = F)
+summary(lm1_step)
+predictions_linear = predict(lm1_step, newdata = dowjones.test,type = "response")
+```
+### MSE value for Linear Model
+```{r}
+mean((predictions_linear - dowjones.test$percent_change_next_weeks_price)^2)
+```
+### SUPPORTED VECTOR REGRESSION
+```{r}
+tuned = tune.svm(percent_change_next_weeks_price~ open+close+high+low+volume
+                 +percent_change_price+percent_change_volume_over_last_wk+
+                   previous_weeks_volume+days_to_next_dividend,
+                  data=dowjones.train, gamma= seq(.01,0.1,by = .01), cost = seq(.01,0.1,by = .01), scale = TRUE)
+resultsSVR = svm(formula=percent_change_next_weeks_price ~open+close+high+low+volume
+                 +percent_change_price+percent_change_volume_over_last_wk+
+                   previous_weeks_volume+days_to_next_dividend, data=dowjones.train,
+                 gramma = tuned$best.parameters$gamma, cost= tuned$best.parameters$cost, scale = TRUE )
+
+predictionsSVR = predict(resultsSVR, newdata = dowjones.test,type = "response")
+
+```
+
+## MSE value for SVR
+```{r}
+mean((predictionsSVR - dowjones.test$percent_change_next_weeks_price)^2) 
+```
+
+
+### DECISION TREE
+
+```{r}
+tree.dow = tree(percent_change_next_weeks_price ~open+
+                  +percent_change_price+percent_change_volume_over_last_wk+
+                  previous_weeks_volume+days_to_next_dividend+close.lag+high.lag+low.lag
+                +percent_change_price.lag+percent_change_volume_over_last_wk.lag+
+                  previous_weeks_volume.lag+volume.lag, data = dowjones.train)
+```
+
+```{r}
+preds_dow = predict(tree.dow, newdata = dowjones.test)
+preds_dow
+```
+
+### Plot the tree
+```{r}
+plot(tree.dow)
+text(tree.dow)
+```
+
+### Perform cost complexity pruning by CV
+```{r}
+cv.dow = cv.tree(tree.dow)
+best.size = cv.dow$size[which.min(cv.dow$dev)]
+plot(cv.dow$size, cv.dow$dev, type = "b")
+```
+
+### prune
+```{r}
+prune.dow = prune.tree(tree.dow, best = 5)
+plot(prune.dow)
+text(prune.dow)
+```
+
+### get predictions
+```{r}
+preds_dow_pruned = predict(prune.dow, newdata = dowjones.test)
+preds_dow = predict(tree.dow, newdata = dowjones.test)
+```
+
+### MSE for Normal vs Prune
+```{r}
+mean((preds_dow_pruned - as.numeric(dowjones.test$percent_change_next_weeks_price))^2)
+mean((preds_dow - as.numeric(dowjones.test$percent_change_next_weeks_price)) ^ 2)
+```
+
+### Linear regression and SVR works better than decision tree. 8.00, 8.05 vs 8.9
+
+### MODELS COMPARISON SINGLE STOCKS ###
+```{r}
+set.seed(111)
+treefnct <- function(stockTrain, stockTest){
+  
+  tree.dow = tree(percent_change_next_weeks_price ~ open+close+high+low
+                  +volume+percent_change_price+percent_change_volume_over_last_wk+
+                    previous_weeks_volume+days_to_next_dividend+open.lag+close.lag+high.lag+low.lag++
+                    +volume+percent_change_price.lag+percent_change_volume_over_last_wk.lag+
+                    previous_weeks_volume.lag, data = stockTrain)
+  preds_dow = predict(tree.dow, newdata = stockTest)
+  mse_tree = mean((preds_dow - as.numeric(stockTest$percent_change_next_weeks_price)) ^ 2)
+  print(mse_tree)
+  
+}
+```
+```{r}
+linearfnct <- function(stockTrain, stockTest){
+  
+  lm3 = lm(percent_change_next_weeks_price ~ open+close+high+low+volume
+           +percent_change_price+percent_change_volume_over_last_wk+
+             previous_weeks_volume+days_to_next_dividend, data= stockTrain)
+  null.model = lm(percent_change_next_weeks_price ~1, data= stockTrain)
+  lm3_step <- step(lm3, scope = list(upper=null.model),
+                   direction="backward",test="Chisq", trace = F)
+  #print(summary(lm3_step))
+  predictions = predict(lm3_step, newdata = stockTest,type = "response")
+  mse_linear = mean((predictions - stockTest$percent_change_next_weeks_price)^2)
+  print(mse_linear)
+  
+}
+```
+
+```{r}
+svrfnct <- function(stockTrain, stockTest){
+  
+  tuned1 = tune.svm(percent_change_next_weeks_price~ open+close+high+low+volume
+                   +percent_change_price+percent_change_volume_over_last_wk+
+                     previous_weeks_volume+days_to_next_dividend+open.lag+close.lag+high.lag+low.lag+
+                     +volume+percent_change_price.lag+percent_change_volume_over_last_wk.lag+
+                     previous_weeks_volume.lag, data=stockTrain, gamma= seq(.01,0.1,by = .01), cost = seq(.01,0.1,by = .01), scale = TRUE)
+  
+  resultsSVR1 = svm(formula=percent_change_next_weeks_price ~open+close+high+low+volume
+                   +percent_change_price+percent_change_volume_over_last_wk+
+                     previous_weeks_volume+days_to_next_dividend, data=stockTrain,
+                   gramma = tuned$best.parameters$gamma, cost= tuned$best.parameters$cost, scale = TRUE )
+  
+  predictionsSVR = predict(resultsSVR1, newdata = stockTest,type = "response")
+  mse_svr = mean((predictionsSVR - stockTest$percent_change_next_weeks_price)^2)
+  print(mse_svr)
+}
+
+```
+    
+```{r}
+trainSplit<-split(dowjones.train,dowjones.train$stock)
+testSplit<-split(dowjones.test,dowjones.test$stock)
+```
+
+```{r}
+for (i in names(trainSplit)){
+  print(i)
+  treefnct(trainSplit[[i]], testSplit[[i]])
+  linearfnct(trainSplit[[i]], testSplit[[i]])
+  svrfnct(trainSplit[[i]], testSplit[[i]])
+}
+```
+
+# SVR and decision tree works pretty well for single stocks, while linear regression have high variance due the sample size
+
+# Overall SVR offers the best compromise between overall and single stock predictions.
+
+
+# CAPM
+
+### Calculate Dowjones
+```{r}
+dowjones.agg <- aggregate(dowjones$close, by = list(dowjones$date), FUN = function(x) sum(x)/0.132)
+return.DOW <- na.omit(Delt(dowjones.agg[,2]))
+
+stocks <- as_factor(unique(dowjones$stock))
+stock.returns <- data.frame(matrix(0.0, ncol = 30, nrow = 24))
+colnames(stock.returns) <- stocks
+```
+
+```{r}
+# Calculate stock returns
+for(i in 1:length(stocks)){
+  dowjones.sub <- subset(dow, stock == stocks[i])
+  stock.returns[i] <- na.omit(Delt(dowjones.sub$close))
+}
+
+stock.returns <- cbind(stock.returns, return.DOW) %>% 
+  rename(DOW = Delt.1.arithmetic)
+```
+
+```{r}
+# Calculate betas
+beta.AA <- lm(AA ~ DOW, data = stock.returns)$coef[2]
+beta.AXP <- lm(AXP ~ DOW, data = stock.returns)$coef[2]
+beta.BA <- lm(BA ~ DOW, data = stock.returns)$coef[2]
+beta.BAC <- lm(BAC ~ DOW, data = stock.returns)$coef[2]
+beta.CAT <- lm(CAT ~ DOW, data = stock.returns)$coef[2]
+beta.CSCO <- lm(CSCO ~ DOW, data = stock.returns)$coef[2]
+beta.CVX <- lm(CVX ~ DOW, data = stock.returns)$coef[2]
+beta.DD <- lm(DD ~ DOW, data = stock.returns)$coef[2]
+beta.DIS <- lm(DIS ~ DOW, data = stock.returns)$coef[2]
+beta.GE <- lm(GE ~ DOW, data = stock.returns)$coef[2]
+beta.HD <- lm(HD ~ DOW, data = stock.returns)$coef[2]
+beta.HPQ <- lm(HPQ ~ DOW, data = stock.returns)$coef[2]
+beta.IBM <- lm(IBM ~ DOW, data = stock.returns)$coef[2]
+beta.INTC <- lm(INTC ~ DOW, data = stock.returns)$coef[2]
+beta.JNJ <- lm(JNJ ~ DOW, data = stock.returns)$coef[2]
+beta.JPM <- lm(JPM ~ DOW, data = stock.returns)$coef[2]
+beta.KRFT <- lm(KRFT ~ DOW, data = stock.returns)$coef[2]
+beta.KO <- lm(KO ~ DOW, data = stock.returns)$coef[2]
+beta.MCD <- lm(MCD ~ DOW, data = stock.returns)$coef[2]
+beta.MMM <- lm(MMM ~ DOW, data = stock.returns)$coef[2]
+beta.MRK <- lm(MRK ~ DOW, data = stock.returns)$coef[2]
+beta.MSFT <- lm(MSFT ~ DOW, data = stock.returns)$coef[2]
+beta.PFE <- lm(PFE ~ DOW, data = stock.returns)$coef[2]
+beta.PG <- lm(PG ~ DOW, data = stock.returns)$coef[2]
+beta.T <- lm(`T` ~ DOW, data = stock.returns)$coef[2]
+beta.TRV <- lm(TRV ~ DOW, data = stock.returns)$coef[2]
+beta.UTX <- lm(UTX ~ DOW, data = stock.returns)$coef[2]
+beta.VZ <- lm(VZ ~ DOW, data = stock.returns)$coef[2]
+beta.WMT <- lm(WMT ~ DOW, data = stock.returns)$coef[2]
+beta.XOM <- lm(XOM ~ DOW, data = stock.returns)$coef[2]
+```
+
+```{r}
+lm4 = lm(percent_change_next_weeks_price ~ open+close+high+low+volume
+         +percent_change_price+percent_change_volume_over_last_wk+
+           previous_weeks_volume+days_to_next_dividend, data= dowjones.test)
+null.model = lm(percent_change_next_weeks_price ~1, data= dowjones.test)
+lm4_step <- step(lm4, scope = list(upper=null.model),
+                 direction="backward",test="Chisq", trace = F)
+stock_return = predict(lm4_step,type = "response")
+```
+
+```{r}
+# beta dataframe
+df <- data.frame(Stock = c("Alcoa Corporation", "American Express", "Boeing", "Bank of America", 
+                           "Caterpillar Inc.", "Cisco Systems, Inc.", "Chevron", "DuPont", 
+                           "Disney", "General Electric", "Home Depot", "HP Inc.", "IBM", 
+                           "Intel", "Johnson & Johnson", "J.P. Morgan Chase&Co.", "Kraft",
+                           "Coca Cola", "McDonald's", "3M", "Merck & Co.", "Microsoft", 
+                           "Pfizer", "Procter&Gamble", "AT&T", "Travelers", "United Technologies",
+                           "Verizon", "Walmart", "Exxon Mobil"),
+                 Beta = c(beta.AA, beta.AXP, beta.BA, beta.BAC, beta.CAT, beta.CSCO,
+                          beta.CVX, beta.DD, beta.DIS, beta.GE, beta.HD, beta.HPQ, beta.IBM,
+                          beta.INTC, beta.JNJ, beta.JPM, beta.KRFT, beta.KO, beta.MCD,
+                          beta.MMM, beta.MRK, beta.MSFT, beta.PFE, beta.PG, beta.T, beta.TRV,
+                          beta.UTX, beta.VZ, beta.WMT, beta.XOM))
+df
+```
+
+```{r}
+#final dataset with stock return
+df1 <- data.frame(Stock = c("Alcoa Corporation", "American Express", "Boeing", "Bank of America", 
+                           "Caterpillar Inc.", "Cisco Systems, Inc.", "Chevron", "DuPont", 
+                           "Disney", "General Electric", "Home Depot", "HP Inc.", "IBM", 
+                           "Intel", "Johnson & Johnson", "J.P. Morgan Chase&Co.", "Kraft",
+                           "Coca Cola", "McDonald's", "3M", "Merck & Co.", "Microsoft", 
+                           "Pfizer", "Procter&Gamble", "AT&T", "Travelers", "United Technologies",
+                           "Verizon", "Walmart", "Exxon Mobil"),
+                 Beta = c(beta.AA, beta.AXP, beta.BA, beta.BAC, beta.CAT, beta.CSCO,
+                          beta.CVX, beta.DD, beta.DIS, beta.GE, beta.HD, beta.HPQ, beta.IBM,
+                          beta.INTC, beta.JNJ, beta.JPM, beta.KRFT, beta.KO, beta.MCD,
+                          beta.MMM, beta.MRK, beta.MSFT, beta.PFE, beta.PG, beta.T, beta.TRV,
+                          beta.UTX, beta.VZ, beta.WMT, beta.XOM),
+                          returns=stock_return)
+df1
+```
+
+
+
+
